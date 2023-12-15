@@ -258,7 +258,7 @@ public class GLMV3 extends ModelBuilderSchema<GLM,GLMV3,GLMV3.GLMParametersV3> {
     @API(help = "Linear constraints: used to specify linear constraints involving more than one coefficients in " +
             "standard form.  It is only supported for solver IRLSM.  It contains four columns: names (strings for " +
             "coefficient names or constant), values, types ( strings of 'Equal' or 'LessThanEqual'), constraint_numbers" +
-            " (0 for first linear constraint, 2 for second linear constraint, ...", 
+            " (0 for first linear constraint, 1 for second linear constraint, ...", 
             direction = API.Direction.INPUT /* Not required, to allow initial params validation: , required=true */)
     public FrameKeyV3 linear_constraints;
 

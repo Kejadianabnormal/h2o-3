@@ -1,5 +1,6 @@
 package hex.glm;
 
+import Jama.Matrix;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -18,10 +19,15 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static hex.gam.MatrixFrameUtils.GamUtils.copy2DArray;
+import static hex.glm.ComputationState.GramGrad.dropCols;
+import static hex.glm.ComputationState.GramGrad.findZeroCols;
 import static hex.glm.ComputationState.calGram;
 import static hex.glm.ConstrainedGLMUtils.*;
+import static hex.glm.GLMModel.GLMParameters.Family.binomial;
 import static hex.glm.GLMModel.GLMParameters.Family.gaussian;
 import static hex.glm.GLMModel.GLMParameters.Solver.IRLSM;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 import static water.fvec.Vec.T_NUM;
 import static water.fvec.Vec.T_STR;
@@ -510,6 +516,52 @@ public class GLMConstrainedTest extends TestUtil {
     Scope.exit();
   }
 
+  // this test is written to test and make sure when there is zero columns found in GRAM, it is removed correctly.
+  @Test
+  public void testRemoveZeroGramColumns() {
+    Scope.enter();
+    try {
+      Frame train = parseAndTrackTestFile("smalldata/logreg/prostate.csv");
+      train.replace((2), train.vec(2).toCategoricalVec()).remove();
+      DKV.put(train);
+      // non-constraining constraint.
+      Frame linear_constraints = new TestFrameBuilder()
+              .withColNames("names", "values", "types", "constraint_numbers")
+              .withVecTypes(T_STR, T_NUM, T_STR, T_NUM)
+              .withDataForCol(0, new String[] {"RACE", "DPROS", "constant"})
+              .withDataForCol(1, new double [] {1, 1, -0.27})
+              .withDataForCol(2, new String[] {"lessthanequal", "lessthanequal", "lessthanequal"})
+              .withDataForCol(3, new int[]{0, 0, 0}).build();
+      Scope.track(linear_constraints);
+      
+      Frame betaConstraint = new TestFrameBuilder()
+              .withColNames("names", "lower_bounds", "upper_bounds")
+              .withVecTypes(T_STR, T_NUM, T_NUM)
+              .withDataForCol(0, new String[]{"AGE","RACE","DCAPS","DPROS","PSA","VOL","GLEASON"})
+              .withDataForCol(1, new double[]{0.1,-0.5,-0.4,-0.3,-0.2,-0.5,-0.5})
+              .withDataForCol(2, new double[]{0.5,0.5,0.4,0.3,0.5,0.5,0.5}).build();
+      Scope.track(betaConstraint);
+      
+      GLMModel.GLMParameters params = new GLMModel.GLMParameters(binomial);
+      params._response_column = "CAPSULE";
+      params._solver = IRLSM;
+      params._train = train._key;
+      params._nfolds = 10;
+      params._seed = 12345;
+      params._alpha = new double[]{0.5};
+      params._ignored_columns = new String[]{"ID"};
+      params._beta_constraints = betaConstraint._key;
+      GLMModel glmWithoutConstraints = new GLM(params).trainModel().get();
+      Scope.track_generic(glmWithoutConstraints);
+      params._testCSZeroGram = true;
+      params._linear_constraints = linear_constraints._key;
+      GLMModel glmWithConstraints = new GLM(params).trainModel().get();
+      Scope.track_generic(glmWithConstraints);
+      // both models should have similar coefficients
+    } finally {
+      Scope.exit();
+    }
+  }
 
   
   public void assertCorrectDerivatives(ConstrainedGLMUtils.ConstraintsDerivatives[] actual, 
@@ -941,6 +993,83 @@ public class GLMConstrainedTest extends TestUtil {
       assertCorrectConstraintContent(_lessThanNames2, _lessThanValues2, glm2._output._lessThanEqualToConstraints);
     } finally {
       Scope.exit();
+    }
+  }
+  
+  // this test will make sure that the find zero columns function is working
+  @Test
+  public void testFindZeroColumns() {
+    Matrix initMat = Matrix.random(11, 11);
+    double[][] doubleValsOrig = (initMat.plus(initMat.transpose())).getArray();
+    double[][] doubleVals = new double[doubleValsOrig.length][doubleValsOrig.length];
+    copy2DArray(doubleValsOrig, doubleVals);
+    // no zero columns
+    int[] numZeroCol = findZeroCols(doubleVals);
+    assertTrue("number of zero columns is zero in this case but is not.", numZeroCol.length==0);
+    // introduce one zero column
+    testDropCols(doubleValsOrig, doubleVals, new int[]{8}, 8);
+    // introduce two zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{4, 8}, 4);
+    // introduce three zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{3, 4, 8}, 3);
+    // introduce four zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{3, 4, 6, 8}, 6);
+    // introduce five zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{0, 3, 4, 6, 8}, 0);
+    // introduce six zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{0, 3, 4, 6, 8, 9}, 9);
+    // introduce seven zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{0, 1, 3, 4, 6, 8, 9}, 1);
+    // introduce eight zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{0, 1, 3, 4, 6, 7, 8, 9}, 7);
+    // introduce nine zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{0, 1, 3, 4, 5, 6, 7, 8, 9}, 5);
+    // introduce 10 zero columns
+    testDropCols(doubleValsOrig, doubleVals, new int[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 2);
+  }
+  
+  public void testDropCols(double[][] valsOrig, double[][] doubleVals, int[] zeroIndices, int newZeroIndex) {
+    addOneZeroCol(doubleVals, newZeroIndex);
+    int[] numZeroCol = findZeroCols(doubleVals);
+    assertArrayEquals(numZeroCol, zeroIndices);
+    // drop zero column
+    double[][] noZeroCols = dropCols(zeroIndices, valsOrig);
+    assertCorrectColDrops(noZeroCols, doubleVals, zeroIndices);
+  }
+  
+  public void assertCorrectColDrops(double[][] actual, double[][] arrayWithZeros, int[] zeroIndices) {
+    assertTrue("Incorrect dropped column matrix size", 
+            (actual.length+zeroIndices.length)==arrayWithZeros.length);
+    Arrays.sort(zeroIndices);
+    int matLen = arrayWithZeros.length;
+    List<Integer> indiceList = IntStream.range(0, actual.length).boxed().collect(Collectors.toList());
+    for (int val:zeroIndices)
+      indiceList.add(val, -1);
+    
+    for (int rIndex=0; rIndex<matLen; rIndex++) {
+      int actRInd = indiceList.get(rIndex);
+      for (int cIndex=rIndex; cIndex<matLen; cIndex++) {
+        int actCInd = indiceList.get(cIndex);
+        if (actRInd >= 0 && actCInd >= 0) { // rows/cols not involve in dropped cols/rows
+          assertTrue("Non-zero elements differ.", 
+                  arrayWithZeros[rIndex][cIndex] == actual[actRInd][actCInd]);
+          assertTrue("Non-zero elements differ.",
+                  arrayWithZeros[cIndex][rIndex] == actual[actCInd][actRInd]);
+        } else  {  // we are at rows/cols that are zero and should be dropped
+          assertTrue("Non-zero elements differ.",
+                  arrayWithZeros[rIndex][cIndex] == 0);
+          assertTrue("Non-zero elements differ.",
+                  arrayWithZeros[cIndex][rIndex] == 0);
+        }
+      }
+    }
+  }
+
+  public void addOneZeroCol(double[][] vals, int zeroIndex) {
+    int len = vals.length;
+    for (int index = 0; index < len; index++) {
+      vals[zeroIndex][index] = 0;
+      vals[index][zeroIndex] = 0;
     }
   }
 

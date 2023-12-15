@@ -543,6 +543,7 @@ public class GLMModel extends Model<GLMModel,GLMModel.GLMParameters,GLMModel.GLM
     public double _dispersion_learning_rate = 0.5;
     public Influence _influence;  // if set to dfbetas will calculate the difference of betas obtained from including and excluding a data row
     public boolean _keepBetaDiffVar = false;  // if true, will keep the frame generating the beta without from i and the variance estimation
+    boolean _testCSZeroGram = false;  // internal parameter, to test zero gram dropped column is correctly implemented
     
     public void validate(GLM glm) {
       if (_remove_collinear_columns) {

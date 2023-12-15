@@ -1195,8 +1195,8 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
         warn("Beta Constraints", " will be disabled except for solver AUTO, COORDINATE_DESCENT, " +
                 "IRLSM or L_BFGS.  It is not available for ordinal or multinomial families.");
       }
-      if((bc.hasBounds() || bc.hasProximalPenalty()) && _parms._compute_p_values)
-        error("_compute_p_values","P-values can not be computed for constrained problems");
+      if (bc.hasProximalPenalty() && _parms._compute_p_values)
+        error("_compute_p_values","P-values can not be computed for constrained problems with proximal penalty");
       if (bc.hasBounds() && _parms._early_stopping)
         warn("beta constraint and early_stopping", "if both are enabled may degrade model performance.");
       _state.setBC(bc);
@@ -1346,7 +1346,6 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
       }      
       if (_parms._linear_constraints != null) {
         checkAssignLinearConstraints();
-        
       }
       buildModel();
     }
@@ -1367,7 +1366,8 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
               " IRLSM/irlsm explicitly.");
       return;
     }
-    if (notZeroLambdas(_parms._lambda) || _parms._lambda_search) {  // no regularization for constrainted GLM
+    // no regularization for constrainted GLM except during testing
+    if ((notZeroLambdas(_parms._lambda) || _parms._lambda_search) && !_parms._testCSZeroGram) {
       error("lambda or lambda_search", "Regularization is not allowed for constrained GLM.");
       return;
     }
@@ -1666,10 +1666,17 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
         int[] collinear_cols = new int[ignoredCols.size()];
         for (int i = 0; i < collinear_cols.length; ++i)
           collinear_cols[i] = ignoredCols.get(i);
-        throw new Gram.CollinearColumnsException("Found collinear columns in the dataset. P-values can not be " +
-                "computed with collinear columns in the dataset. Set remove_collinear_columns flag to true to remove " +
-                "collinear columns automatically. Found collinear columns " +
-                Arrays.toString(ArrayUtils.select(_dinfo.coefNames(), collinear_cols)));
+        
+        String[] ignoredConstraints = collinearInConstraints(ArrayUtils.select(_dinfo.coefNames(), collinear_cols),
+                _state._csGLMState._constraintNames);
+        if (ignoredConstraints != null && ignoredConstraints.length > 0)
+          throw new IllegalArgumentException("Found constraints " + Arrays.toString(ignoredConstraints) + 
+                  " included in collinear columns that are going to be removed.  Please remove any constraints " +
+                  "involving collinear columns.");
+        if (!_parms._remove_collinear_columns)
+          throw new Gram.CollinearColumnsException("Found collinear columns in the dataset. Set " +
+                  "remove_collinear_columns flag to true to remove collinear columns automatically. " +
+                  "Found collinear columns " + Arrays.toString(ArrayUtils.select(_dinfo.coefNames(), collinear_cols)));
       }
       if (!chol.isSPD()) throw new NonSPDMatrixException();
       _chol = chol;
@@ -2316,6 +2323,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
       ConstraintsDerivatives[] derivativeLess = calDerivatives(lessThanEqualToConstraints, coeffNames);
       // contribution to hessian from ||h(beta)||^2 without C, stays constant
       ConstraintsGram[] gramEqual = hasEqualityConstraints ? calGram(derivativeEqual) : null;
+      // this matrix assumes full matrix, no collinear or columns that are removed
       double[][] gramEqualContributions = hasEqualityConstraints ? sumGramConstribution(gramEqual, betaCnd.length) : null;
       ConstraintsGram[] gramLess = calGram(derivativeLess);
       GLMGradientSolver ginfo = gam.equals(_parms._glmType) ? new GLMGradientSolver(_job, _parms, _dinfo, 0,
@@ -2363,6 +2371,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
               return;
             }
             betaCnd = ls.getX();
+            // predictors removed if there are collinear columns
             gradientInfo = calGradient(betaCnd, _state, ginfo, lambdaEqual, lambdaLessThan,
                     equalityConstraints, lessThanEqualToConstraints, derivativeEqual, derivativeLess);
             if (!progress(betaCnd, ls.ginfo()) && constraintsStop(gradientInfo, _state, equalityConstraints, 

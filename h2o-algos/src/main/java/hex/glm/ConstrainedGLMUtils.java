@@ -24,6 +24,7 @@ public class ConstrainedGLMUtils {
   public static final double ALPHACS = 0.1;
   public static final double BETACS = 0.9;
   public static final double EPSILON0 = 0.1;
+  public static final double EPS = 1e-15;
   
   public static class LinearConstraints extends Iced { // store one linear constraint
     public IcedHashMap<String, Double> _constraints; // column names, coefficient of constraints
@@ -341,7 +342,7 @@ public class ConstrainedGLMUtils {
     int rank = constMatrixLessConstant.rank();
     if (rank < constMatrix.getRowDimension()) { // redundant constraints are specified
       double[][] rMatVal = constMatrixTConstMatrix.qr().getR().getArray();
-      List<Double> diag = IntStream.range(0, rMatVal.length).mapToDouble(x->Math.abs(rMatVal[x][x])).boxed().collect(Collectors.toList());
+      List<Double> diag = IntStream.range(0, rMatVal.length).mapToDouble(x->Math.abs(rMatVal[x][x])).filter(x->x>EPS).boxed().collect(Collectors.toList());
       int[] sortedIndices = IntStream.range(0, diag.size()).boxed().sorted((i, j) -> diag.get(i).compareTo(diag.get(j))).mapToInt(ele->ele).toArray();
       List<Integer> duplicatedEleIndice = IntStream.range(0, diag.size()-rank).map(x -> sortedIndices[x]).boxed().collect(Collectors.toList());
       return genRedundantConstraint(state, duplicatedEleIndice);
@@ -618,6 +619,7 @@ public class ConstrainedGLMUtils {
                                                 double[] lambdaE, double[] lambdaL, LinearConstraints[] constraintE,
                                                 LinearConstraints[] constrainL, ConstraintsDerivatives[] equalD, 
                                                 ConstraintsDerivatives[] lessD) {
+    // todo: need to add support for predictors removed for whatever reason
     // calculate gradients
     GLM.GLMGradientInfo gradientInfo = ginfo.getGradient(betaCnd); // gradient without constraints
     // add gradient contribution from constraints
@@ -635,5 +637,10 @@ public class ConstrainedGLMUtils {
     if (equalityConstraints != null)  // initialize lambda for equality constraints
       Arrays.stream(equalityConstraints).collect(Collectors.toList()).parallelStream().forEach(constraint -> evalOneConstraint(constraint, betaCnd, coeffNames));
     setActiveConstraints(lessThanEqualToConstraints, betaCnd, coeffNames);
+  }
+  
+  public static String[] collinearInConstraints(String[] collinear_cols, String[] constraintNames) {
+    List<String> cNames = Arrays.stream(constraintNames).collect(Collectors.toList());
+    return Arrays.stream(collinear_cols).filter(x -> (cNames.contains(x))).toArray(String[]::new);
   }
 }

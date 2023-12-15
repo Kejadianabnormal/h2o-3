@@ -22,13 +22,11 @@ import water.util.IcedHashMap;
 import water.util.Log;
 import water.util.MathUtils;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static hex.glm.ComputationState.GramGrad.findZeroCols;
 import static hex.glm.ConstrainedGLMUtils.*;
 import static hex.glm.GLMModel.GLMParameters.Family.gaussian;
 import static hex.glm.GLMUtils.calSmoothNess;
@@ -1229,6 +1227,41 @@ public final class ComputationState {
       for (int i = j + 1; i < Z.length; ++i)  // update xj to zj //
         updateZij(i,j,Z,gamma);
     }
+
+    public static double[][] dropCols(int[] cols, double[][] xx) {
+      Arrays.sort(cols);
+      int newXXLen = xx.length-cols.length;
+      double [][] xxNew = new double[newXXLen][newXXLen];
+      int oldXXLen = xx.length;
+      List<Integer> newIndices = IntStream.range(0, newXXLen).boxed().collect(Collectors.toList());
+      for (int index:cols)
+        newIndices.add(index,-1);
+      int newXindexX, newXindexY;
+      for (int rInd=0; rInd<oldXXLen; rInd++) {
+        newXindexX = newIndices.get(rInd);
+        for (int cInd=rInd; cInd<oldXXLen; cInd++) {
+          newXindexY = newIndices.get(cInd);
+          if (newXindexY >= 0 && newXindexX >= 0) {
+            xxNew[newXindexX][newXindexY] = xx[rInd][cInd];
+            xxNew[newXindexY][newXindexX] = xx[cInd][rInd];
+          }
+        }
+      }
+      return xxNew;
+    }
+
+    public static int[] findZeroCols(double[][] xx){
+      ArrayList<Integer> zeros = new ArrayList<>();
+      for(int i = 0; i < xx.length; ++i) {
+        if (sum(xx[i]) == 0)
+          zeros.add(i);
+      }
+      if(zeros.size() == 0) return new int[0];
+      int [] ary = new int[zeros.size()];
+      for(int i = 0; i < zeros.size(); ++i)
+        ary[i] = zeros.get(i);
+      return ary;
+    }
   }
 
   /**
@@ -1380,6 +1413,14 @@ public final class ComputationState {
       addConstraintObj(lambdaE, constraintE, _csGLMState._ckCS, gradientInfo);
     addConstraintObj(lambdaL, constraintL, _csGLMState._ckCS, gradientInfo);
     // remove zeros in Gram matrix and throw an error if that coefficient is included in the constraint
+    int[] activeCols = activeData.activeCols();
+    int[] zeros = findZeroCols(fullGram);
+    if (_parms._family != Family.multinomial && zeros.length > 0 && zeros.length <= activeData.activeCols().length) {
+      GramGrad.dropCols(zeros, fullGram); // shrink gram matrix
+      removeCols(zeros);  // update activeData.activeCols(), _beta
+      return new GramGrad(fullGram, ArrayUtils.removeIds(gradientInfo._gradient, zeros), 
+              ArrayUtils.removeIds(beta, zeros), gradientInfo._objVal, gt.sumOfRowWeights, ArrayUtils.removeIds(xy, zeros));
+    }
     return new GramGrad(fullGram, gradientInfo._gradient, beta, gradientInfo._objVal, gt.sumOfRowWeights, xy);
   }
   
