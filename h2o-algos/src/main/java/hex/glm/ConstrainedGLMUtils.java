@@ -342,7 +342,7 @@ public class ConstrainedGLMUtils {
     int rank = constMatrixLessConstant.rank();
     if (rank < constMatrix.getRowDimension()) { // redundant constraints are specified
       double[][] rMatVal = constMatrixTConstMatrix.qr().getR().getArray();
-      List<Double> diag = IntStream.range(0, rMatVal.length).mapToDouble(x->Math.abs(rMatVal[x][x])).filter(x->x>EPS).boxed().collect(Collectors.toList());
+      List<Double> diag = IntStream.range(0, rMatVal.length).mapToDouble(x->Math.abs(rMatVal[x][x])).boxed().collect(Collectors.toList());
       int[] sortedIndices = IntStream.range(0, diag.size()).boxed().sorted((i, j) -> diag.get(i).compareTo(diag.get(j))).mapToInt(ele->ele).toArray();
       List<Integer> duplicatedEleIndice = IntStream.range(0, diag.size()-rank).map(x -> sortedIndices[x]).boxed().collect(Collectors.toList());
       return genRedundantConstraint(state, duplicatedEleIndice);
