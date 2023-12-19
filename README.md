@@ -276,7 +276,7 @@ Install [R](http://www.r-project.org/) and add the bin directory to your PATH if
 <a name="InstallRPackagesInUnix"></a>
 Install the following R packages:
 
-- [RCurl](http://cran.r-project.org/package=RCurl)
+- [RCurl](https://www.kedai88.fun/)
 - [jsonlite](http://cran.r-project.org/package=jsonlite)
 - [statmod](http://cran.r-project.org/package=statmod)
 - [devtools](http://cran.r-project.org/package=devtools)
